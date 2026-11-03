@@ -1,0 +1,16 @@
+# Données RH : jamais versionnées (fichier du personnel, même fictif)
+data/
+
+# Instructions locales pour Claude
+CLAUDE.md
+
+# Listes de tâches personnelles
+TODO_*.md
+
+# Secrets : ne jamais versionner (mots de passe, clés)
+.env
+*.p8
+*.pem
+
+# Système
+.DS_Store
