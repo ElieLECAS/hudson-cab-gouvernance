@@ -60,44 +60,92 @@ Première analyse (à valider, et à compléter au jour 2 quand les politiques e
 
 ## Partie 2 — Cahier de tests
 
-Décidez d'abord à quoi ressemble une valeur masquée pour chaque type de colonne (texte, date) et notez-le ici : ______. Puis remplissez en deux temps : la colonne « attendu » **avant** d'écrire les politiques, à partir de la matrice du contrat ; la colonne « obtenu » après, en exécutant la requête avec le rôle indiqué (`USE ROLE ...`).
+Ce cahier est écrit **avant** les politiques de masquage et d'accès par ligne. La colonne « attendu » vient de la matrice du contrat (§4) et des décisions ci-dessous ; la colonne « obtenu » sera remplie après les politiques, en exécutant chaque requête avec le rôle indiqué (`USE SECONDARY ROLES NONE;`, `USE ROLE …;`, puis `USE WAREHOUSE NYC_TAXI_WH;`).
 
-Un test est vert quand « obtenu » est identique à « attendu ». Un accès refusé (`Object does not exist or not authorized`) est un résultat comme un autre : écrivez-le.
+Un test est vert quand « obtenu » est identique à « attendu ». Un accès refusé (`Object does not exist or not authorized`) est un résultat comme un autre : il s'écrit tel quel. Les volumes viennent de `TRANSFORMER`, avant les politiques ; les valeurs de personnes ne sont jamais écrites dans ce fichier (il est public) : on note « en clair » ou « masqué ».
+
+### Ce qu'est une valeur masquée
+
+Une politique de masquage renvoie le **type qu'elle reçoit** : un texte masqué reste un texte, une date masquée reste une date.
+
+| Type | Valeur masquée | Pourquoi |
+|---|---|---|
+| texte (nom, e-mail, téléphone, numéro de licence) | `*****` | un texte visiblement factice : personne ne le prend pour une vraie valeur ; il ne fait pas disparaître la ligne |
+| date de naissance, pour `RESP_DEPOT_*`, `ACCOUNTADMIN`, `SYSADMIN`, `GOUVERNANCE` | `NULL` | une fausse date (1900-01-01) pourrait être prise pour une vraie |
+| date de naissance, pour `ANALYSTE` | le **1er janvier de l'année de naissance** | le contrat autorise l'année seulement ; une date tronquée reste une date, donc `YEAR(birth_date)` fonctionne |
+
+*Décision proposée, à valider.* Elle est écrite avant les politiques : si le résultat obtenu diffère, c'est la politique qu'on corrige, pas ce tableau.
+
+### Décisions à trancher avant d'écrire les politiques
+
+1. **Les politiques d'accès par ligne couvrent-elles aussi `RAW` ?** Le guide n'attache la politique qu'à `MARTS.DIM_DRIVER` et `MARTS.MART_DRIVER_MONTHLY`. Mais le contrat dit qu'un rôle absent de la matrice ne voit aucune ligne des « tables du domaine RH », et il nomme `RAW.DRIVERS` et `RAW.DRIVER_SHIFTS` parmi elles, et la matrice donne « aucune » ligne à `ACCOUNTADMIN`. Ces attendus supposent donc la politique **aussi sur `RAW`** : les tests 9 bis et 16 en dépendent. Sans elle, `ACCOUNTADMIN` verrait des lignes de `RAW` aux colonnes masquées.
+2. **`ACCOUNTADMIN` et `SYSADMIN` héritent de `TRANSFORMER`** (installation) : ils peuvent donc *lire* les tables, mais n'étant pas dans `ACCES_DEPOT`, ils voient **0 ligne**. C'est l'attendu des tests 7 et 15.
+
+### Volumes de référence (avant les politiques, rôle `TRANSFORMER`)
+
+Calculés à partir du fichier en reproduisant les SQL fournis ; à confirmer par la requête exécutée avec `TRANSFORMER`.
+
+| Table | Total | Bronx | Brooklyn | Queens |
+|---|---|---|---|---|
+| `MARTS.DIM_DRIVER` | 400 | 122 | 117 | 161 |
+| `MARTS.MART_DRIVER_MONTHLY` | 914 | 290 | 259 | 365 |
+| `MARTS.DIM_DEPOT` | 3 | 1 | 1 | 1 |
+
+Dans `RAW.DRIVERS`, le dépôt est mal écrit pour 9 chauffeurs : `BRONX ` (4, espace final) et `queens` (5, minuscules). `STAGING` les corrige, d'où 122 au Bronx (118 + 4) et 161 à Queens (156 + 5) dans `MARTS`. Dans `MART_DRIVER_MONTHLY`, 25 lignes ont un `driver_name` vide : ce sont des services de chauffeurs inconnus.
 
 ### Lignes visibles
 
 | N° | Rôle | Requête | Attendu | Obtenu | Vert ? |
 |---|---|---|---|---|---|
-| 1 | `RH_PAIE` | `SELECT COUNT(*) FROM NYC_TAXI.MARTS.DIM_DRIVER` | | | |
-| 2 | `RESP_DEPOT_QUEENS` | la même | | | |
-| 3 | `RESP_DEPOT_QUEENS` | `SELECT DISTINCT depot FROM NYC_TAXI.MARTS.DIM_DRIVER` | | | |
-| 4 | `RESP_DEPOT_BRONX` | `SELECT COUNT(*) FROM NYC_TAXI.MARTS.MART_DRIVER_MONTHLY` | | | |
-| 5 | `ANALYSTE` | `SELECT COUNT(*) FROM NYC_TAXI.MARTS.DIM_DRIVER` | | | |
-| 6 | `GOUVERNANCE` | la même | | | |
-| 7 | `ACCOUNTADMIN` | la même | | | |
-| 8 | `RH_PAIE` | `SELECT COUNT(*) FROM NYC_TAXI.RAW.DRIVER_SHIFTS` | | | |
-| 9 | `ANALYSTE` | `SELECT COUNT(*) FROM NYC_TAXI.RAW.DRIVERS` | | | |
-| 9 bis | `ACCOUNTADMIN` | `SELECT first_name, email FROM NYC_TAXI.RAW.DRIVERS LIMIT 3` | | | |
+| 1 | `RH_PAIE` | `SELECT COUNT(*) FROM NYC_TAXI.MARTS.DIM_DRIVER` | 400 | | |
+| 2 | `RESP_DEPOT_QUEENS` | la même | 161 | | |
+| 3 | `RESP_DEPOT_QUEENS` | `SELECT DISTINCT depot FROM NYC_TAXI.MARTS.DIM_DRIVER` | 1 ligne : `Queens` | | |
+| 4 | `RESP_DEPOT_BRONX` | `SELECT COUNT(*) FROM NYC_TAXI.MARTS.MART_DRIVER_MONTHLY` | 290 | | |
+| 5 | `ANALYSTE` | `SELECT COUNT(*) FROM NYC_TAXI.MARTS.DIM_DRIVER` | 400 | | |
+| 6 | `GOUVERNANCE` | la même | refusé : `Object does not exist or not authorized` (`USAGE` sur `MARTS`, aucun `SELECT`) | | |
+| 7 | `ACCOUNTADMIN` | la même | 0 (la requête réussit : le rôle lit la table par héritage, mais n'est pas dans `ACCES_DEPOT`) | | |
+| 8 | `RH_PAIE` | `SELECT COUNT(*) FROM NYC_TAXI.RAW.DRIVER_SHIFTS` | refusé : aucun droit sur `RAW` | | |
+| 9 | `ANALYSTE` | `SELECT COUNT(*) FROM NYC_TAXI.RAW.DRIVERS` | refusé : aucun droit sur `RAW` | | |
+| 9 bis | `ACCOUNTADMIN` | `SELECT first_name, email FROM NYC_TAXI.RAW.DRIVERS LIMIT 3` | 0 ligne (politique d'accès par ligne aussi sur `RAW`, voir décision 1) | | |
 
 ### Valeurs visibles
 
-Pour le chauffeur `D0003`, la valeur que chaque rôle doit lire dans chaque colonne (ou « colonne absente », ou « ligne invisible »).
+Pour le chauffeur `D0003` (dépôt de Queens, en poste), la valeur que chaque rôle doit lire dans chaque colonne (ou « ligne invisible »). « Clair » = la vraie valeur du fichier, non reproduite ici.
 
 | Colonne | `RH_PAIE` | `RESP_DEPOT_QUEENS` | `RESP_DEPOT_BRONX` | `ANALYSTE` |
 |---|---|---|---|---|
-| nom et prénom | | | | |
-| e-mail | | | | |
-| téléphone | | | | |
-| date de naissance | | | | |
-| numéro de licence | | | | |
-| `driver_name` dans `MART_DRIVER_MONTHLY` | | | | |
+| `driver_id` | clair | clair | ligne invisible | clair |
+| nom et prénom | clair | clair | ligne invisible | `*****` |
+| e-mail | clair | `*****` | ligne invisible | `*****` |
+| téléphone | clair | clair | ligne invisible | `*****` |
+| date de naissance | date complète | `NULL` | ligne invisible | 1er janvier de l'année de naissance |
+| numéro de licence | clair | `*****` | ligne invisible | `*****` |
+| `driver_name` dans `MART_DRIVER_MONTHLY` | clair | clair | ligne invisible | `*****` |
 
 ### Le pipeline fonctionne toujours
 
 | N° | Vérification | Attendu | Obtenu | Vert ? |
 |---|---|---|---|---|
-| 10 | Avec le rôle des outils, après avoir relancé les fichiers SQL : nombre de lignes de `DIM_DRIVER` | | | |
-| 11 | Avec `RH_PAIE` : l'e-mail de `D0003` est toujours une vraie adresse | | | |
-| 12 | Les politiques sont toujours attachées après la relance (requête de la section 7 du contrat) | | | |
+| 10 | Avec `TRANSFORMER`, après avoir relancé les fichiers SQL : nombre de lignes de `DIM_DRIVER` | 400 (la purge n'existe pas encore) ; `MART_DRIVER_MONTHLY` 914 | | |
+| 11 | Avec `RH_PAIE` : l'e-mail de `D0003` est toujours une vraie adresse | contient un `@`, n'est pas `*****` | | |
+| 12 | Les politiques sont toujours attachées après la relance : `POLICY_REFERENCES` sur `MARTS.DIM_DRIVER` (requête du contrat §7) | la politique d'accès par ligne sur `depot`, et la politique de masquage sur chacune des 7 colonnes taguées `DONNEE_PERSONNELLE` | | |
+
+### Tests ajoutés (cas limites)
+
+| N° | Rôle | Requête | Attendu | Obtenu | Vert ? |
+|---|---|---|---|---|---|
+| 13 | `ANALYSTE` | `SELECT COUNT(*) FROM NYC_TAXI.MARTS.DIM_DRIVER WHERE email LIKE '%@%'` | 0 (l'e-mail est `*****`, aucun `@`) | | |
+| 14 | `ANALYSTE` | `SELECT YEAR(birth_date) FROM NYC_TAXI.MARTS.DIM_DRIVER WHERE driver_id = 'D0003'` | une année, pas `NULL` | | |
+| 15 | `SYSADMIN` | `SELECT COUNT(*) FROM NYC_TAXI.MARTS.DIM_DRIVER` | 0 (rôle absent de `ACCES_DEPOT`, qui hérite pourtant de `TRANSFORMER`) | | |
+| 16 | `ACCOUNTADMIN` | `SELECT COUNT(*) FROM NYC_TAXI.RAW.DRIVER_SHIFTS` | 0 (voir décision 1) | | |
+| 17 | `RESP_DEPOT_BRONX` | `SELECT COUNT(*) FROM NYC_TAXI.MARTS.DIM_DRIVER` | 122 : les 4 chauffeurs dont le dépôt est écrit `BRONX ` dans `RAW` sont visibles, car `STAGING` les corrige | | |
+| 18 | `RESP_DEPOT_BRONX` | `SELECT COUNT(*) FROM NYC_TAXI.MARTS.DIM_DRIVER WHERE driver_id = 'D0003'` | 0 (chauffeur de Queens) | | |
+| 19 | `GOUVERNANCE` | `SELECT * FROM NYC_TAXI.GOUVERNANCE.ACCES_DEPOT` | 5 lignes : `RH_PAIE`, `ANALYSTE`, `TRANSFORMER`, `RESP_DEPOT_QUEENS`, `RESP_DEPOT_BRONX` (il lit la table de règles, qu'il possède, pas les données) | | |
+| 20 | `RESP_DEPOT_QUEENS` | `SELECT COUNT(*) FROM NYC_TAXI.MARTS.DIM_DEPOT` | 3 (référentiel lisible par tous les rôles métier, sans filtre de lignes) | | |
+| 21 | `ANALYSTE` | `SELECT COUNT(*) FROM NYC_TAXI.STAGING.STG_RH__DRIVERS` | refusé : aucun droit sur `STAGING` | | |
+| 22 | `TRANSFORMER` | `SELECT COUNT(*) FROM NYC_TAXI.MARTS.DIM_DRIVER WHERE email LIKE '%@%'` | un nombre > 0 : le rôle des outils lit les e-mails en clair | | |
+| 23 | `TRANSFORMER` | `SELECT COUNT(*) FROM NYC_TAXI.MARTS.MART_DRIVER_MONTHLY WHERE driver_name = '*****'` | 0 (le pipeline n'a pas recopié de masque) | | |
+| 24 | `RESP_DEPOT_QUEENS` | `SELECT driver_name FROM NYC_TAXI.MARTS.MART_DRIVER_MONTHLY WHERE driver_id = 'D0003' LIMIT 1` | clair (le contrat donne nom et prénom aux responsables de dépôt) | | |
+| 25 | `ANALYSTE` | `SELECT COUNT(*) FROM NYC_TAXI.MARTS.MART_DRIVER_MONTHLY` | 914 | | |
 
 Ajoutez vos propres tests : un cahier qui ne contient que des tests verts dès le premier essai n'a probablement pas cherché les cas limites.
