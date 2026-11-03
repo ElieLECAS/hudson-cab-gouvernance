@@ -10,7 +10,7 @@ Ce dépôt répond à une seule question : qui peut voir quelle donnée, pendant
 |---|---|
 | Veille réglementaire (`docs/VEILLE.md`) | rédigée |
 | Inventaire des données personnelles (`docs/REGISTRE.md`, partie 1) | fait |
-| Chargement du fichier dans `RAW`, rôles, catalogue | à faire |
+| Chargement du fichier dans `RAW`, rôle `GOUVERNANCE` et tags, catalogue des tables RH | fait (jour 1) |
 | Masquage, accès par dépôt, tests (`docs/ACCES.md`) | à faire |
 | Purge, qualité, tâches planifiées, audit, registre complet | à faire |
 
@@ -28,6 +28,17 @@ Ce fichier est complété au fil du projet. Les sections marquées « à complé
 ## Pourquoi les fichiers CSV ne sont pas dans le dépôt
 
 Le dépôt est public et l'historique Git garde tout, même ce qu'on supprime ensuite. Le fichier des chauffeurs est fictif, mais il a la forme d'un vrai fichier du personnel : noms, e-mails, téléphones, dates de naissance, numéros de licence. Il est traité comme un vrai. Le dossier `data/` est donc ignoré par Git, et les captures d'écran du dépôt n'affichent aucune valeur en clair du fichier. Pour rejouer le projet, il faut récupérer les deux CSV dans le kit du brief et les placer dans `data/`.
+
+## Chargement des données
+
+Les deux CSV sont chargés dans `NYC_TAXI.RAW` en trois temps, par `snowflake/rh/chargement_rh_1_preparer.sql` puis `chargement_rh_2_copier.sql`, avec le rôle `TRANSFORMER`.
+
+- **Le format de fichier** (`CSV_RH`) dit à Snowflake comment lire un CSV : on saute la ligne d'en-tête, les guillemets entourent les champs, et les espaces ne sont pas retirés. `RAW` doit rester une copie fidèle du fichier : les erreurs (un dépôt écrit `BRONX ` avec un espace, par exemple) sont corrigées plus tard, dans `STAGING`.
+- **Le stage** (`RH_STAGE`) est un espace de dépôt dans Snowflake. J'y ai déposé les deux fichiers depuis Snowsight. `LIST` en montrait deux, avec la même taille et la même somme de contrôle que les fichiers locaux.
+- **`COPY INTO`** lit les fichiers du stage et remplit les tables. Il convertit les colonnes de dates et de nombres au passage, et ajoute le nom du fichier source et l'heure du chargement. Avec `ON_ERROR = ABORT_STATEMENT`, une seule ligne illisible annule tout le chargement du fichier, au lieu de laisser une table à moitié remplie.
+- **`PURGE = TRUE`** retire chaque fichier du stage une fois copié. C'est la règle R3 du contrat : le fichier RH ne reste pas dans Snowflake après le chargement. `LIST` est vide ensuite.
+
+Résultat : 400 chauffeurs et 25 951 services dans `RAW`, comme attendu. Relancer `chargement_rh_2_copier.sql` avec un stage vide échoue sur « Remote file … was not found », puisque `FILES = ('drivers.csv')` désigne un fichier qui n'est plus là. Je n'ai pas testé ce que fait `COPY INTO` quand on redépose le même fichier.
 
 ## Gouvernance
 
