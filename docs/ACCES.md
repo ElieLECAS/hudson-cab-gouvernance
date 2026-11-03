@@ -20,30 +20,41 @@ Le propriétaire d'un objet est le rôle qui l'a créé.
 | Objet | Propriétaire |
 |---|---|
 | Tables de `RAW` et de `MARTS` | le rôle des outils |
-| Schéma `GOUVERNANCE` | |
-| Tags | |
-| Politiques de masquage | |
-| Politique d'accès par ligne | |
-| Table `ACCES_DEPOT` | |
-| Table `QUALITE_RESULTATS` | |
-| Vue `V_CATALOGUE` | |
+| Schéma `GOUVERNANCE` | `GOUVERNANCE` : créé par `ACCOUNTADMIN`, qui lui en a donné la propriété (`GRANT OWNERSHIP … COPY CURRENT GRANTS`). Vérifié avec `SHOW GRANTS TO ROLE GOUVERNANCE`. |
+| Tags | `GOUVERNANCE`, qui les a créés. Vérifié (3 lignes `OWNERSHIP` sur `TAG`). |
+| Politiques de masquage | à remplir au jour 2. Attendu : `GOUVERNANCE`, qui les créera dans son schéma. |
+| Politique d'accès par ligne | à remplir au jour 2. Attendu : `GOUVERNANCE`. |
+| Table `ACCES_DEPOT` | à remplir au jour 2. Attendu : `GOUVERNANCE`. |
+| Table `QUALITE_RESULTATS` | `GOUVERNANCE`, qui l'a créée. Vérifié (`OWNERSHIP` sur `TABLE`). |
+| Vue `V_CATALOGUE` | à remplir au jour 3. Attendu : `TRANSFORMER`, qui la crée dans le schéma `GOUVERNANCE` avec `CREATE VIEW`. |
 
 ### Qui fait quoi, avec quel droit
 
 | Action | Rôle qui la fait | Privilège nécessaire | Accordé par |
 |---|---|---|---|
-| Créer un tag | `GOUVERNANCE` | `CREATE TAG` sur le schéma, ou en être propriétaire | `ACCOUNTADMIN` |
-| Poser un tag sur une colonne de `DIM_DRIVER` | | | |
-| Créer une politique de masquage | | | |
-| Attacher une politique de masquage à un tag | | | |
-| Ajouter une politique d'accès par ligne à une table | | | |
-| Écrire une ligne dans `QUALITE_RESULTATS` | | | |
-| Lire `DIM_DRIVER` | | | |
-| Exécuter une requête | chaque rôle | | |
+| Créer un tag | `GOUVERNANCE` | `CREATE TAG` sur le schéma, ou en être propriétaire : ici `OWNERSHIP` du schéma `GOUVERNANCE` | `ACCOUNTADMIN` |
+| Poser un tag sur une colonne de `DIM_DRIVER` | `TRANSFORMER` | `APPLY` sur le tag posé, `USAGE` sur le schéma `GOUVERNANCE`, et être propriétaire de la table. Les droits sont vérifiés (`SHOW GRANTS TO ROLE TRANSFORMER`) ; la pose elle-même sera vérifiée au catalogue. | `GOUVERNANCE` (`APPLY` et `USAGE`) ; la propriété de la table vient de la création par `TRANSFORMER` |
+| Créer une politique de masquage | `GOUVERNANCE` | `OWNERSHIP` du schéma `GOUVERNANCE` (à vérifier au jour 2) | `ACCOUNTADMIN` |
+| Attacher une politique de masquage à un tag | `GOUVERNANCE` | `APPLY MASKING POLICY` sur le compte (à vérifier au jour 2) | `ACCOUNTADMIN` |
+| Ajouter une politique d'accès par ligne à une table | `GOUVERNANCE` | `APPLY ROW ACCESS POLICY` sur le compte (à vérifier au jour 2) | `ACCOUNTADMIN` |
+| Écrire une ligne dans `QUALITE_RESULTATS` | `TRANSFORMER` | `INSERT` (et `SELECT` pour relire) sur la table, `USAGE` sur le schéma. Vérifié. | `GOUVERNANCE` |
+| Lire `DIM_DRIVER` | rôles métier | `SELECT` sur la table, `USAGE` sur la base et sur `MARTS` (jour 2, `02_roles_metier.sql`) | `TRANSFORMER`, ou `ACCOUNTADMIN` selon le script |
+| Exécuter une requête | chaque rôle | `USAGE` sur le warehouse `NYC_TAXI_WH`. Vérifié pour `TRANSFORMER` et `GOUVERNANCE`. | `ACCOUNTADMIN` |
+
+Constats faits en testant (rôle `GOUVERNANCE`) :
+
+- Il a `USAGE` sur `RAW` et `MARTS` mais aucun `SELECT` : `SELECT COUNT(*) FROM NYC_TAXI.RAW.DRIVERS` renvoie `Object … does not exist or not authorized`, message identique à celui d'un objet qui n'existe pas.
+- Dans l'exemple du bac à sable, le même rôle n'a pas vu la table avec `SHOW TABLES` et n'a pas pu lire les colonnes taguées dans `INFORMATION_SCHEMA`. Pour vérifier les tags des tables RH, utiliser `TRANSFORMER` : avec `GOUVERNANCE`, un résultat vide ne prouve rien.
 
 ### Ce que cette carte permet à un rôle de défaire
 
 Pour chaque rôle qui peut poser ou retirer un tag, ou détacher une politique : que pourrait-il démasquer ? Est-ce acceptable, et qui le surveille ?
+
+Première analyse (à valider, et à compléter au jour 2 quand les politiques existeront) :
+
+- **`TRANSFORMER`** a `APPLY` sur les trois tags et possède les tables. Il peut donc retirer le tag `DONNEE_PERSONNELLE` d'une colonne : la politique de masquage n'ayant plus de tag à lire, la colonne serait vue en clair. Le rôle des outils fait tourner les tâches, donc son compte est un point sensible. À surveiller par la requête d'audit du jour 3 (qui a modifié ou retiré un tag, avec quel rôle).
+- **`GOUVERNANCE`** peut détacher ou modifier une politique de masquage : il pourrait démasquer sans lire une seule donnée. C'est le rôle qui écrit les règles, donc ce pouvoir est voulu ; la surveillance repose sur l'historique des requêtes.
+- **`ACCOUNTADMIN`** a donné ces droits et peut les reprendre. Il ne lit pas les données, mais peut s'attribuer un autre rôle. À encadrer par une revue des droits (`SHOW GRANTS`), pas par la technique seule.
 
 ---
 

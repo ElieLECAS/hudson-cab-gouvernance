@@ -4,7 +4,7 @@
 -- (99_nettoyage.sql). À exécuter en entier avec ACCOUNTADMIN (Cmd+Maj+Entrée). Rejouable.
 -- =====================================================================
 USE ROLE ACCOUNTADMIN;
-SET moi = CURRENT_USER();
+SET moi = '"' || CURRENT_USER() || '"';   -- guillemets : un nom comme prenom.nom exige des guillemets doubles
 
 -- Les rôles : ni rattachés à SYSADMIN, ni entre eux. Chacun ne fait que son métier.
 CREATE ROLE IF NOT EXISTS EX_PIPELINE    COMMENT = 'Charge et transforme : propriétaire des données';
