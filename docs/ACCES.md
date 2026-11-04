@@ -38,13 +38,22 @@ Le propriétaire d'un objet est le rôle qui l'a créé.
 | Attacher une politique de masquage à un tag | `GOUVERNANCE` | `APPLY MASKING POLICY` sur le compte (à vérifier au jour 2) | `ACCOUNTADMIN` |
 | Ajouter une politique d'accès par ligne à une table | `GOUVERNANCE` | `APPLY ROW ACCESS POLICY` sur le compte (à vérifier au jour 2) | `ACCOUNTADMIN` |
 | Écrire une ligne dans `QUALITE_RESULTATS` | `TRANSFORMER` | `INSERT` (et `SELECT` pour relire) sur la table, `USAGE` sur le schéma. Vérifié. | `GOUVERNANCE` |
-| Lire `DIM_DRIVER` | rôles métier | `SELECT` sur la table, `USAGE` sur la base et sur `MARTS` (jour 2, `02_roles_metier.sql`) | `TRANSFORMER`, ou `ACCOUNTADMIN` selon le script |
+| Lire `DIM_DRIVER` | `RH_PAIE`, `RESP_DEPOT_QUEENS`, `RESP_DEPOT_BRONX`, `ANALYSTE` | `SELECT` sur la table, `USAGE` sur le warehouse, la base et le schéma `MARTS`. Vérifié (7 droits actuels par rôle, aucun sur `RAW` ni `STAGING`). | `02_roles_metier.sql`, exécuté par `ACCOUNTADMIN` ; Snowflake enregistre `TRANSFORMER` comme donneur du `SELECT`, car il possède la table |
+| Lire une table de `MARTS` créée plus tard | `ANALYSTE` | `SELECT ON FUTURE TABLES IN SCHEMA MARTS` : droit « futur », 2 pour ce rôle (tables de `MARTS`, vues de `GOUVERNANCE`), 1 pour les trois autres (vues de `GOUVERNANCE`). Vérifié avec `SHOW FUTURE GRANTS`. | `ACCOUNTADMIN` |
+| Lire `V_CATALOGUE` (jour 3) | les 4 rôles métier | `USAGE` sur le schéma `GOUVERNANCE` et `SELECT` sur les vues futures du schéma | `GOUVERNANCE` est enregistré comme donneur de `USAGE` (il possède le schéma) |
 | Exécuter une requête | chaque rôle | `USAGE` sur le warehouse `NYC_TAXI_WH`. Vérifié pour `TRANSFORMER` et `GOUVERNANCE`. | `ACCOUNTADMIN` |
 
-Constats faits en testant (rôle `GOUVERNANCE`) :
+Constats faits en testant :
+
+- **Qui est le donneur ?** Quand `ACCOUNTADMIN` exécute un `GRANT` sur un objet qu'un autre rôle possède, Snowflake enregistre le **propriétaire de l'objet** comme donneur (`granted_by`). Exemple : le `SELECT` des rôles métier sur `DIM_DRIVER` figure comme donné par `TRANSFORMER`. Pour retrouver qui a donné un droit, il faut donc lire `granted_by`, pas supposer le rôle qui a lancé le script.
+- Les droits « futurs » n'apparaissent pas dans `SHOW GRANTS` : ils ont leur propre commande, `SHOW FUTURE GRANTS TO ROLE …`.
+
+Constats sur le rôle `GOUVERNANCE` :
 
 - Il a `USAGE` sur `RAW` et `MARTS` mais aucun `SELECT` : `SELECT COUNT(*) FROM NYC_TAXI.RAW.DRIVERS` renvoie `Object … does not exist or not authorized`, message identique à celui d'un objet qui n'existe pas.
 - Dans l'exemple du bac à sable, le même rôle n'a pas vu la table avec `SHOW TABLES` et n'a pas pu lire les colonnes taguées dans `INFORMATION_SCHEMA`. Pour vérifier les tags des tables RH, utiliser `TRANSFORMER` : avec `GOUVERNANCE`, un résultat vide ne prouve rien.
+- **Vérifié sur le bac à sable (exemples 02 et 03)** : `GOUVERNANCE` (rôle `EX_GOUVERNANCE`) a pu attacher une politique de masquage à un **tag** et une politique d'accès par ligne à une **table** qu'il ne voit pas, grâce aux droits `APPLY MASKING POLICY` et `APPLY ROW ACCESS POLICY` donnés sur le compte. Il lit `POLICY_REFERENCES` mais pas `TAG_REFERENCES_ALL_COLUMNS` : ce que le rôle peut vérifier dépend de la fonction. À revérifier sur les vraies tables au jour 2 (étapes 2.5 et 2.6).
+- **Le filtre s'applique après le masque** : `WHERE email LIKE 'claire%'` renvoie 0 pour l'analyste (le filtre compare à la valeur masquée). Après une reconstruction de la table par `INSERT OVERWRITE`, les politiques restent en place.
 
 ### Ce que cette carte permet à un rôle de défaire
 
@@ -83,7 +92,7 @@ Une politique de masquage renvoie le **type qu'elle reçoit** : un texte masqué
 
 ### Volumes de référence (avant les politiques, rôle `TRANSFORMER`)
 
-Calculés à partir du fichier en reproduisant les SQL fournis ; à confirmer par la requête exécutée avec `TRANSFORMER`.
+Calculés à partir du fichier en reproduisant les SQL fournis, puis confirmés dans Snowflake avec `TRANSFORMER` le 3 novembre 2026 (avant toute politique).
 
 | Table | Total | Bronx | Brooklyn | Queens |
 |---|---|---|---|---|
