@@ -14,7 +14,7 @@ Ce dépôt répond à une seule question : qui peut voir quelle donnée, pendant
 | Masquage, accès par dépôt, cahier de tests (`docs/ACCES.md`) | fait (jour 2) : 25 tests sur 25 verts |
 | Purge, règles de qualité, tâches planifiées, catalogue, audit, registre complet | fait (jour 3) |
 
-Ce qui reste de mon côté est une dernière relecture des documents et la démonstration.
+Les trois tâches planifiées sont suspendues (voir « Les tâches »). La démonstration est présentée par une autre personne, à partir de ce dépôt ; il me reste une dernière relecture des documents.
 
 ## Contenu du dépôt
 
@@ -145,7 +145,7 @@ Une règle d'avertissement enregistre une ligne `ALERTE` et les tâches continue
 
 #### Les tâches
 
-`MARTS.T_PURGE` (racine, chaque jour à 6 h, heure de Paris) → `MARTS.T_QUALITE` → `MARTS.T_TABLES`. On purge, on contrôle, et on ne reconstruit les tables que si le contrôle est passé. Les tâches tournent avec le rôle `TRANSFORMER`, qui lit en clair et figure dans `ACCES_DEPOT`. Le graphe est dans `docs/capture_graphe_taches.png`. La racine est suspendue à la fin du projet (`ALTER TASK NYC_TAXI.MARTS.T_PURGE SUSPEND;`), parce qu'une tâche activée consomme des crédits chaque jour.
+`MARTS.T_PURGE` (racine, chaque jour à 6 h, heure de Paris) → `MARTS.T_QUALITE` → `MARTS.T_TABLES`. On purge, on contrôle, et on ne reconstruit les tables que si le contrôle est passé. Les tâches tournent avec le rôle `TRANSFORMER`, qui lit en clair et figure dans `ACCES_DEPOT`. Le graphe est dans `docs/capture_graphe_taches.png`. Les trois tâches ont été suspendues le 4 novembre 2026 (`snowflake/rh/suspendre_taches.sql`), parce qu'une tâche activée consomme des crédits chaque jour : l'état `suspended` des trois a été vérifié avec `SHOW TASKS`. Pour les réactiver : `SELECT SYSTEM$TASK_DEPENDENTS_ENABLE('NYC_TAXI.MARTS.T_PURGE');` ou rejouer `taches_rh.sql`.
 
 ### Ordre d'exécution
 
@@ -168,6 +168,7 @@ Chaque fichier se colle dans une feuille Snowsight et se lance en entier. Chacun
 | 13 | `snowflake/rh/catalogue/v_catalogue.sql` | `TRANSFORMER` | vue `GOUVERNANCE.V_CATALOGUE` (24 colonnes) |
 | 14 | `snowflake/rh/taches_rh.sql` | `TRANSFORMER` | les trois tâches, activées et lancées une fois |
 | 15 | `snowflake/gouvernance/06_audit.sql` | `ACCOUNTADMIN` | qui a lu `DIM_DRIVER` (retard possible jusqu'à 3 h) |
+| 16 | `snowflake/rh/suspendre_taches.sql` | `TRANSFORMER` | suspend les trois tâches en fin de projet |
 
 Les tests sont dans `snowflake/gouvernance/tests/` : un script par rôle (`test_acces_<rôle>.sql`), plus `test_apres_relance_pipeline.sql`, `test_12_politiques_attachees.sql`, `test_apres_taches.sql` et `test_v_catalogue.sql`. Chacun renvoie une table, sans afficher de valeur de personne. `snowflake/rh/demo_blocage_tache.sql` rejoue le blocage de la règle bloquante.
 
@@ -177,7 +178,7 @@ Pour recharger un fichier complet : redéposer les CSV (étape 3), relancer l'é
 
 - **Le rôle des outils voit tout en clair** et possède les tables. Il a reçu `APPLY` sur les trois tags : il pourrait retirer `DONNEE_PERSONNELLE` d'une colonne, et le masque ne s'y appliquerait plus (non testé). Il ne possède pas les politiques. Ses lectures sont tracées par l'audit ; le reste est une question d'authentification et de revue des droits.
 - **`ACCOUNTADMIN` ne lit pas les données, mais peut s'attribuer un autre rôle** (`RH_PAIE`, `TRANSFORMER`) et en voir. Le garde-fou est organisationnel (revue de `SHOW GRANTS`, audit), pas technique.
-- **Fail-safe** : une donnée supprimée n'a réellement disparu qu'au bout de 8 jours (1 + 7). Les tables transitoires sont une piste (pas de Fail-safe, d'après la documentation Snowflake, à vérifier) ; je ne l'ai pas appliquée.
+- **Fail-safe** : une donnée supprimée n'a réellement disparu qu'au bout de 8 jours (1 + 7). Les tables transitoires sont une piste : elles n'ont pas de Fail-safe, et leur Time Travel est de 0 ou 1 jour (documentation Snowflake, page *Working with Temporary and Transient Tables*, contrôlée le 4 novembre 2026). Je ne l'ai pas appliquée : une table transitoire perd aussi la protection contre une perte accidentelle.
 - **Les dates en clair** (`hire_date`, `end_date`, `is_active`, `tenure_years`) : aucune valeur du tag ne leur correspond (liste fermée par le contrat). Avec le dépôt, elles réduisent le nombre de candidats. Je les laisse parce qu'elles ne sont pas identifiantes seules et que la règle R1 en a besoin.
 - **`tlc_license_number`** : gardé en clair pour la paie parce que le contrat lui donne « tout ». Si elle n'en a pas l'usage, il faudrait le supprimer (minimisation, art. 5 §1 c du RGPD). C'est une proposition, pas une décision.
 - **`driver_name` dans `MART_DRIVER_MONTHLY`** recopie un nom dans une table d'activité. Je le garde (masqué par le tag) parce que le contrat et le cahier de tests l'attendent. On pourrait le retirer et passer par la jointure avec `DIM_DRIVER`.

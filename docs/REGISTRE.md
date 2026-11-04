@@ -49,7 +49,7 @@ Les colonnes techniques `_source_file` et `_loaded_at`, ajoutées au chargement 
 
 ### Où cette donnée est-elle copiée ?
 
-Pour chaque colonne personnelle : la liste des tables et des vues de l'entrepôt où elle se retrouve, y compris sous une autre forme (colonne renommée, colonne calculée). À compléter au fil des trois jours. État à la fin du jour 1, relevé dans les SQL fournis (`snowflake/rh/`).
+Pour chaque colonne personnelle : la liste des tables et des vues de l'entrepôt où elle se retrouve, y compris sous une autre forme (colonne renommée, colonne calculée). Relevé dans les SQL de `snowflake/rh/`, vérifié à la fin du jour 3 : aucune copie n'a été ajoutée depuis le jour 1 (le catalogue, les règles de qualité, les tâches et l'audit ne recopient aucune donnée de personne : `V_CATALOGUE` contient des noms de colonnes, des descriptions et des tags ; `QUALITE_RESULTATS` des comptes). Les tables de rapport créées pendant la purge sont temporaires et ne contiennent que des nombres.
 
 | Colonne d'origine | Table ou vue | Colonne | Sous quelle forme |
 |---|---|---|---|
@@ -80,7 +80,7 @@ Pour chaque colonne personnelle : la liste des tables et des vues de l'entrepôt
 | `depot` | `MARTS.DIM_DRIVER`, `MARTS.MART_DRIVER_MONTHLY` | `depot` | identique à `STAGING` ; dans `MART_DRIVER_MONTHLY`, c'est le dépôt du service |
 | `shift_date`, `hours_worked`, `trips_count`, `revenue_usd` | `RAW.DRIVER_SHIFTS`, `STG_RH__DRIVER_SHIFTS` | mêmes noms | copie, puis converties en types |
 | `shift_date`, `hours_worked`, `trips_count`, `revenue_usd` | `MARTS.MART_DRIVER_MONTHLY` | `activity_month`, `hours_worked`, `trips_count`, `revenue_usd`, `nb_shifts` | **agrégées par chauffeur et par mois** : le détail du service disparaît, le lien avec la personne reste |
-| toutes les colonnes de `RAW` | historique Time Travel (1 jour) puis Fail-safe (7 jours) des tables ci-dessus | toutes | copies conservées par Snowflake après suppression ou modification (voir `VEILLE.md`, fiche 6) |
+| toutes les colonnes de `RAW` | historique Time Travel (1 jour) puis Fail-safe (7 jours) des tables ci-dessus | toutes | copies conservées par Snowflake après suppression ou modification (voir `VEILLE.md`, fiche 6). Les 46 chauffeurs purgés le 4 novembre 2026 y restent donc jusqu'à 8 jours. |
 
 Hors de l'entrepôt : les copies locales des CSV (poste de travail, téléchargements) sont des copies supplémentaires, à supprimer à la fin du brief.
 
@@ -134,11 +134,11 @@ La règle d'accès vit dans la table `GOUVERNANCE.ACCES_DEPOT` : ouvrir un dép�
 
 | Règle | Comment elle est appliquée | Preuve |
 |---|---|---|
-| R1 : suppression 5 ans après la fin du contrat | `snowflake/rh/purge_rh.sql` (une fois, avec rapport) puis tâche quotidienne `MARTS.T_PURGE` : supprime les services puis les chauffeurs dont `end_date` est antérieure à aujourd'hui − 5 ans, dans `RAW` ; `DIM_DRIVER` et le mart sont reconstruits ensuite (`T_TABLES`). | rapport de la purge du 4 novembre 2026 : date limite 2021-11-04, 46 chauffeurs purgés, `RAW.DRIVERS` 400 → 354, `DIM_DRIVER` 354 ; 0 service concerné, car ces chauffeurs n'ont aucun service dans le relevé de janvier à mars 2025 ; `docs/capture_purge_conservation.png` |
+| R1 : suppression 5 ans après la fin du contrat | `snowflake/rh/purge_rh.sql` (une fois, avec rapport) puis tâche quotidienne `MARTS.T_PURGE` (suspendue à la fin du projet, réactivable) : supprime les services puis les chauffeurs dont `end_date` est antérieure à aujourd'hui − 5 ans, dans `RAW` ; `DIM_DRIVER` et le mart sont reconstruits ensuite (`T_TABLES`). | rapport de la purge du 4 novembre 2026 : date limite 2021-11-04, 46 chauffeurs purgés, `RAW.DRIVERS` 400 → 354, `DIM_DRIVER` 354 ; 0 service concerné, car ces chauffeurs n'ont aucun service dans le relevé de janvier à mars 2025 ; `docs/capture_purge_conservation.png` |
 | R2 : pas de restauration au-delà de 1 jour | `DATA_RETENTION_TIME_IN_DAYS = 1` posé explicitement sur `RAW.DRIVERS`, `RAW.DRIVER_SHIFTS`, `MARTS.DIM_DRIVER`, `MARTS.MART_DRIVER_MONTHLY` (`snowflake/rh/conservation_rh.sql`). Le défaut du compte valait déjà 1 ; la valeur est maintenant explicite. | `INFORMATION_SCHEMA.TABLES.retention_time` = 1 pour les quatre tables (même capture). Time Travel prouvé avant : juste avant la purge, `RAW.DRIVERS` contenait 400 lignes, dont les 46 chauffeurs purgés, encore lisibles. |
 | R3 : pas de fichier sur le stage | `PURGE = TRUE` dans le `COPY INTO` du chargement (`snowflake/rh/chargement_rh_2_copier.sql`) | `LIST @NYC_TAXI.RAW.RH_STAGE` vide ; 0 fichier dans `DIRECTORY(@RH_STAGE)` (même capture) |
 
-Délai réel entre l'exécution de la purge et la disparition définitive d'une donnée dans Snowflake, en tenant compte de Time Travel et de Fail-safe : **8 jours** (1 jour de Time Travel, restaurable par vous, puis 7 jours de Fail-safe, que seul Snowflake peut utiliser et que l'on ne peut pas réduire). Pour qu'une donnée supprimée soit irrécupérable plus vite, il faudrait des tables transitoires (sans Fail-safe, d'après la documentation Snowflake, à vérifier avant d'en faire une proposition).
+Délai réel entre l'exécution de la purge et la disparition définitive d'une donnée dans Snowflake, en tenant compte de Time Travel et de Fail-safe : **8 jours** (1 jour de Time Travel, restaurable par vous, puis 7 jours de Fail-safe, que seul Snowflake peut utiliser et que l'on ne peut pas réduire). Pour qu'une donnée supprimée soit irrécupérable plus vite, il faudrait des tables transitoires (sans Fail-safe et avec 0 ou 1 jour de Time Travel, d'après la documentation Snowflake contrôlée le 4 novembre 2026 ; elles perdent aussi la protection contre une perte accidentelle, d'où une piste à discuter, pas une décision).
 
 ### Comment on le contrôle
 

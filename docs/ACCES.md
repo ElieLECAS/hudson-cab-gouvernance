@@ -9,7 +9,7 @@ Copier ce fichier sous le nom `docs/ACCES.md`.
 
 ## Partie 1 — Carte des droits
 
-À compléter du jour 1 au jour 2. Dans Snowflake, faire une action demande d'être propriétaire de l'objet ou d'avoir reçu un privilège précis. Cette carte vous évite de chercher, à chaque erreur `Insufficient privileges`, quel droit manque et à qui.
+Complétée du jour 1 au jour 3. Dans Snowflake, faire une action demande d'être propriétaire de l'objet ou d'avoir reçu un privilège précis. Cette carte vous évite de chercher, à chaque erreur `Insufficient privileges`, quel droit manque et à qui.
 
 Vérifiez chaque ligne dans la documentation des privilèges (ressources du jour 2), puis avec `SHOW GRANTS TO ROLE …`.
 
@@ -26,7 +26,7 @@ Le propriétaire d'un objet est le rôle qui l'a créé.
 | Politique d'accès par ligne | `GOUVERNANCE` : `RAP_DEPOT` est créée par `04_acces_depot.sql`, exécuté avec ce rôle. |
 | Table `ACCES_DEPOT` | `GOUVERNANCE`, qui la crée dans son schéma ; il la lit (test 19). |
 | Table `QUALITE_RESULTATS` | `GOUVERNANCE`, qui l'a créée. Vérifié (`OWNERSHIP` sur `TABLE`). |
-| Vue `V_CATALOGUE` | à remplir au jour 3. Attendu : `TRANSFORMER`, qui la crée dans le schéma `GOUVERNANCE` avec `CREATE VIEW`. |
+| Vue `V_CATALOGUE` | `TRANSFORMER`, qui la crée dans le schéma `GOUVERNANCE` avec `CREATE VIEW` (`rh/catalogue/v_catalogue.sql`). Les quatre rôles métier la lisent : `ANALYSTE` y voit les 24 colonnes, comme le propriétaire. |
 
 ### Qui fait quoi, avec quel droit
 
@@ -59,7 +59,7 @@ Constats sur le rôle `GOUVERNANCE` :
 
 Pour chaque rôle qui peut poser ou retirer un tag, ou détacher une politique : que pourrait-il démasquer ? Est-ce acceptable, et qui le surveille ?
 
-Première analyse (à valider, et à compléter au jour 2 quand les politiques existeront) :
+Analyse (les politiques existent maintenant ; les points non testés sont signalés) :
 
 - **`TRANSFORMER`** a `APPLY` sur les trois tags et possède les tables. Il peut donc retirer le tag `DONNEE_PERSONNELLE` d'une colonne : la politique de masquage n'ayant plus de tag à lire, la colonne serait vue en clair. Le rôle des outils fait tourner les tâches, donc son compte est un point sensible. À surveiller par la requête d'audit du jour 3 (qui a modifié ou retiré un tag, avec quel rôle).
 - **`GOUVERNANCE`** peut détacher ou modifier une politique de masquage : il pourrait démasquer sans lire une seule donnée. C'est le rôle qui écrit les règles, donc ce pouvoir est voulu ; la surveillance repose sur l'historique des requêtes.
@@ -89,6 +89,8 @@ Une politique de masquage renvoie le **type qu'elle reçoit** : un texte masqué
 
 1. **Les politiques d'accès par ligne couvrent-elles aussi `RAW` ?** Le guide n'attache la politique qu'à `MARTS.DIM_DRIVER` et `MARTS.MART_DRIVER_MONTHLY`. Mais le contrat dit qu'un rôle absent de la matrice ne voit aucune ligne des « tables du domaine RH », et il nomme `RAW.DRIVERS` et `RAW.DRIVER_SHIFTS` parmi elles, et la matrice donne « aucune » ligne à `ACCOUNTADMIN`. Ces attendus supposent donc la politique **aussi sur `RAW`** : les tests 9 bis et 16 en dépendent. Sans elle, `ACCOUNTADMIN` verrait des lignes de `RAW` aux colonnes masquées.
 2. **`ACCOUNTADMIN` et `SYSADMIN` héritent de `TRANSFORMER`** (installation) : ils peuvent donc *lire* les tables, mais n'étant pas dans `ACCES_DEPOT`, ils voient **0 ligne**. C'est l'attendu des tests 7 et 15.
+
+*Suite* : les deux décisions ont été prises dans le sens écrit ci-dessus (la politique d'accès par ligne est aussi attachée à `RAW`) et vérifiées : tests 7, 9 bis, 15 et 16 donnent 0 ligne, et le test 12 montre la politique sur les quatre tables du domaine RH.
 
 ### Volumes de référence (avant les politiques, rôle `TRANSFORMER`)
 
