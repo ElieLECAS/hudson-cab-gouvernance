@@ -1,0 +1,30 @@
+-- =====================================================================
+-- test_12_politiques_attachees.sql — test 12 du cahier (docs/ACCES.md, partie 2) : où les politiques sont-elles
+-- réellement attachées ? Requête du contrat §7 (POLICY_REFERENCES), avec GOUVERNANCE, sur les quatre tables du domaine RH.
+-- À lancer après la relance du pipeline (étape 2.8). Lecture seule.
+-- Attendu (8 lignes) :
+--   MARTS.DIM_DRIVER           MASKING_POLICY 7   ROW_ACCESS_POLICY 1
+--   MARTS.MART_DRIVER_MONTHLY  MASKING_POLICY 2   ROW_ACCESS_POLICY 1
+--   RAW.DRIVERS                MASKING_POLICY 7   ROW_ACCESS_POLICY 1
+--   RAW.DRIVER_SHIFTS          MASKING_POLICY 1   ROW_ACCESS_POLICY 1
+-- =====================================================================
+USE SECONDARY ROLES NONE;
+USE ROLE GOUVERNANCE;
+USE WAREHOUSE NYC_TAXI_WH;
+
+SELECT 'MARTS.DIM_DRIVER' AS table_cible, policy_kind, COUNT(*) AS nb
+FROM TABLE(NYC_TAXI.INFORMATION_SCHEMA.POLICY_REFERENCES(REF_ENTITY_NAME => 'NYC_TAXI.MARTS.DIM_DRIVER', REF_ENTITY_DOMAIN => 'TABLE'))
+GROUP BY policy_kind
+UNION ALL
+SELECT 'MARTS.MART_DRIVER_MONTHLY', policy_kind, COUNT(*)
+FROM TABLE(NYC_TAXI.INFORMATION_SCHEMA.POLICY_REFERENCES(REF_ENTITY_NAME => 'NYC_TAXI.MARTS.MART_DRIVER_MONTHLY', REF_ENTITY_DOMAIN => 'TABLE'))
+GROUP BY policy_kind
+UNION ALL
+SELECT 'RAW.DRIVERS', policy_kind, COUNT(*)
+FROM TABLE(NYC_TAXI.INFORMATION_SCHEMA.POLICY_REFERENCES(REF_ENTITY_NAME => 'NYC_TAXI.RAW.DRIVERS', REF_ENTITY_DOMAIN => 'TABLE'))
+GROUP BY policy_kind
+UNION ALL
+SELECT 'RAW.DRIVER_SHIFTS', policy_kind, COUNT(*)
+FROM TABLE(NYC_TAXI.INFORMATION_SCHEMA.POLICY_REFERENCES(REF_ENTITY_NAME => 'NYC_TAXI.RAW.DRIVER_SHIFTS', REF_ENTITY_DOMAIN => 'TABLE'))
+GROUP BY policy_kind
+ORDER BY 1, 2;

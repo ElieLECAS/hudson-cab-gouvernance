@@ -65,7 +65,26 @@ Les questions que la veille ne peut pas trancher seule (durées new-yorkaises, r
 
 ### Choix techniques
 
-À compléter : masquer ou supprimer une colonne, purge des services d'un chauffeur parti, durée de conservation par table.
+#### Masquer ou supprimer, colonne par colonne
+
+Supprimer une colonne la retire pour **tous** les rôles, y compris ceux qui en ont besoin : `DIM_DRIVER` sert à la fois la paie, les responsables de dépôt et l'analyste. Je supprime donc une colonne seulement si personne n'en a besoin. Sinon je la masque, ce qui laisse chaque rôle voir ce que le contrat lui donne. Les valeurs masquées sont `*****` pour un texte et `NULL` pour une date (sauf l'analyste, qui voit le 1er janvier de l'année de naissance). Le masquage est porté par le tag `DONNEE_PERSONNELLE`, posé dans le catalogue, et attaché au tag : toute colonne taguée, aujourd'hui ou plus tard, est protégée.
+
+| Colonne | Qui la voit en clair | Décision | Raison |
+|---|---|---|---|
+| `driver_id` | tous les rôles métier | visible de tous | C'est un pseudonyme : il reste une donnée personnelle, mais le contrat le veut visible pour compter et joindre les tables sans nommer personne. La politique prévoit l'exception. |
+| `first_name`, `last_name`, `driver_name` | paie, responsables de dépôt | masquer pour l'analyste | L'analyste n'a pas besoin de savoir qui est un chauffeur. `driver_name` est un nom recopié dans une table d'activité : il est masqué comme les deux colonnes dont il vient. |
+| `email` | paie seulement | masquer pour tous les autres | Seule la paie joint les salariés par e-mail. L'analyste n'en a pas besoin, même masqué : une vue sans cette colonne aurait été possible, mais c'est un objet de plus à maintenir, alors que le masque ne montre rien. |
+| `phone` | paie, responsables de dépôt | masquer pour l'analyste | Les responsables appellent les chauffeurs de leur dépôt. |
+| `birth_date` | paie : date complète | masquer ; l'analyste voit l'année seulement | Le contrat l'autorise pour l'analyse par tranche d'âge. Une date masquée reste une date : l'analyste lit le 1er janvier de l'année de naissance, les responsables lisent `NULL`. |
+| `tlc_license_number` | paie | masquer pour tous les autres | Numéro officiel, identifiant direct. Je le garde pour la paie parce que le contrat lui donne « tout », mais je n'ai pas la preuve qu'elle en a besoin : si ce n'est pas le cas, il faudrait le supprimer (principe de minimisation, art. 5 §1 c du RGPD). Question posée dans `docs/VEILLE.md`. |
+| `hire_date`, `end_date` | tous les rôles métier | laisser en clair | Aucune valeur du tag ne leur correspond, et ce ne sont pas des identifiants directs. Elles servent à l'ancienneté, à `is_active` et à la règle R1. Avec le dépôt, elles réduisent le nombre de candidats : c'est un risque que j'accepte et que je note dans les limites. |
+| `is_active`, `tenure_years` | tous les rôles métier | laisser en clair | Colonnes calculées à partir des deux dates ci-dessus, avec le même raisonnement. Elles révèlent seulement si le contrat est terminé et depuis quand. |
+| `depot` | tous les rôles métier | en clair | C'est la colonne qui filtre les lignes visibles par dépôt. |
+| `nb_shifts`, `hours_worked`, `trips_count`, `revenue_usd` (mart) | tous les rôles métier | en clair | Ce sont des mesures d'activité, personnelles seulement par `driver_id`. Une fois le nom masqué, l'analyste agrège sans identifier. |
+
+Aucune colonne n'est supprimée. Deux pistes restent ouvertes : retirer `tlc_license_number` si la paie n'en a pas besoin, et retirer `driver_name` de `MART_DRIVER_MONTHLY` pour ne plus recopier un nom dans une table d'activité (la jointure avec `DIM_DRIVER` suffirait). J'ai gardé `driver_name` parce que le contrat et le cahier de tests l'attendent.
+
+À compléter : purge des services d'un chauffeur parti, durée de conservation par table.
 
 ### Ordre d'exécution
 
