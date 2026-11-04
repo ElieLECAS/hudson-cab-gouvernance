@@ -96,49 +96,63 @@ Hors de l'entrepôt : les copies locales des CSV (poste de travail, télécharge
 
 Le registre des activités de traitement décrit ce qu'une organisation fait des données personnelles qu'elle détient. Cette fiche en est une version réduite, limitée à ce qu'un Data Engineer peut renseigner et prouver. La trame complète est celle de la CNIL (lien dans les ressources).
 
-Chaque réponse de la colonne de droite doit pouvoir être vérifiée dans l'entrepôt : indiquez la requête ou le fichier qui le prouve.
+Chaque réponse de la colonne de droite peut être vérifiée dans l'entrepôt : la requête ou le fichier qui le prouve est indiqué. Relevés du 4 novembre 2026. Les captures sont dans `docs/`, sans valeur de personne.
 
 ### Le traitement
 
 | Rubrique | Réponse |
 |---|---|
-| Nom du traitement | |
-| Finalité : à quoi servent ces données | |
-| Personnes concernées | |
-| Service responsable des données | |
+| Nom du traitement | Gestion du personnel chauffeur : fichier RH et relevé des services de Hudson Cab Partners |
+| Finalité : à quoi servent ces données | Établir la paie (`RH_PAIE`), encadrer les équipes de chaque dépôt (responsables de dépôt), analyser l'activité sans identifier de chauffeur (`ANALYSTE`), vérifier l'autorisation de conduire (numéro de licence TLC, à confirmer avec la direction RH). |
+| Personnes concernées | Les chauffeurs de Hudson Cab Partners, en poste ou partis depuis moins de 5 ans : 354 dans l'entrepôt après la purge du 4 novembre 2026 (400 dans le fichier reçu). Le fichier est fictif, mais traité comme un vrai fichier du personnel. |
+| Service responsable des données | Hudson Cab Europe (Paris), responsable du traitement depuis le transfert de la gestion (`docs/VEILLE.md`, section 1). Le DPO n'est pas désigné dans les documents reçus : question ouverte (`docs/VEILLE.md`, section 5). Snowflake est sous-traitant ; le compte est hébergé à Londres (`AWS_EU_WEST_2`). |
 
 ### Les données
 
 | Catégorie de données | Colonnes concernées | Tables où elles se trouvent |
 |---|---|---|
-| Identité | | |
-| Coordonnées | | |
-| Vie professionnelle | | |
+| Identité | `driver_id` (pseudonyme), `first_name`, `last_name` (et `driver_name`, colonne calculée), `birth_date`, `tlc_license_number` (identifiant officiel) | `RAW.DRIVERS`, vue `STAGING.STG_RH__DRIVERS`, `MARTS.DIM_DRIVER` ; `driver_id` et `driver_name` aussi dans `MARTS.MART_DRIVER_MONTHLY` ; `driver_id` aussi dans `RAW.DRIVER_SHIFTS` |
+| Coordonnées | `email`, `phone` | `RAW.DRIVERS`, vue `STAGING.STG_RH__DRIVERS`, `MARTS.DIM_DRIVER` |
+| Vie professionnelle | `depot`, `hire_date`, `end_date`, `is_active`, `tenure_years` ; services : `shift_date`, `start_hour`, `hours_worked`, `trips_count`, `revenue_usd` (personnels par `driver_id`) | `RAW.DRIVERS`, `RAW.DRIVER_SHIFTS`, vues de `STAGING`, `MARTS.DIM_DRIVER`, `MARTS.MART_DRIVER_MONTHLY` |
+
+Preuve : `docs/REGISTRE.md` partie 1 (inventaire colonne par colonne) ; `GOUVERNANCE.V_CATALOGUE` (une ligne par colonne des trois tables de `MARTS`, avec description et tags : 24 colonnes, 9 personnelles, lue à l'identique par `ANALYSTE`).
 
 ### Qui y accède
 
 | Rôle | Ce qu'il voit | Pourquoi il en a besoin | Preuve (requête ou test) |
 |---|---|---|---|
-| | | | |
+| `RH_PAIE` | tous les dépôts, tout en clair, date de naissance complète | établir la paie | cahier de tests : tests 1, 8, 11 et valeurs de `D0003` ; `snowflake/gouvernance/tests/test_acces_rh_paie.sql` |
+| `RESP_DEPOT_QUEENS`, `RESP_DEPOT_BRONX` | leur dépôt seulement (161 et 122 chauffeurs) ; nom, prénom, téléphone en clair ; e-mail, licence et naissance masqués | encadrer l'équipe et joindre les chauffeurs de leur dépôt | tests 2, 3, 4, 17, 18, 24 ; `test_acces_resp_depot_queens.sql`, `test_acces_resp_depot_bronx.sql` |
+| `ANALYSTE` | tous les dépôts, aucune donnée qui identifie directement un chauffeur ; l'année de naissance seulement ; toutes les tables de `MARTS`, tables futures comprises | analyser l'activité sans identifier personne | tests 5, 9, 13, 14, 21, 25 ; `test_acces_analyste.sql` ; `docs/capture_meme_requete_analyste.png` et `docs/capture_meme_requete_rh_paie.png` |
+| `TRANSFORMER` (rôle des outils) | toutes les lignes, tout en clair ; propriétaire des tables | charger, transformer, faire tourner les tâches : s'il lisait un masque, il l'écrirait dans les tables | tests 10, 22, 23 ; `test_apres_relance_pipeline.sql`, `test_apres_taches.sql` |
+| `GOUVERNANCE` | aucune donnée ; il lit seulement sa table de règles `ACCES_DEPOT` | écrire les règles (tags, politiques) sans lire les données | tests 6 et 19 ; `test_acces_gouvernance.sql` ; `docs/ACCES.md` partie 1 |
+| `ACCOUNTADMIN`, `SYSADMIN` | 0 ligne des tables RH : ils les lisent par héritage de `TRANSFORMER`, mais ne figurent pas dans `ACCES_DEPOT` | administrer le compte, pas lire le personnel | tests 7, 9 bis, 15, 16 ; explication dans `docs/ACCES.md` partie 2 |
+
+La règle d'accès vit dans la table `GOUVERNANCE.ACCES_DEPOT` : ouvrir un dépôt à un rôle est un `INSERT`, sans toucher à la politique (`snowflake/gouvernance/04_acces_depot.sql`).
 
 ### Combien de temps
 
 | Règle | Comment elle est appliquée | Preuve |
 |---|---|---|
-| R1 : suppression 5 ans après la fin du contrat | | |
-| R2 : pas de restauration au-delà de 1 jour | | |
-| R3 : pas de fichier sur le stage | | |
+| R1 : suppression 5 ans après la fin du contrat | `snowflake/rh/purge_rh.sql` (une fois, avec rapport) puis tâche quotidienne `MARTS.T_PURGE` : supprime les services puis les chauffeurs dont `end_date` est antérieure à aujourd'hui − 5 ans, dans `RAW` ; `DIM_DRIVER` et le mart sont reconstruits ensuite (`T_TABLES`). | rapport de la purge du 4 novembre 2026 : date limite 2021-11-04, 46 chauffeurs purgés, `RAW.DRIVERS` 400 → 354, `DIM_DRIVER` 354 ; 0 service concerné, car ces chauffeurs n'ont aucun service dans le relevé de janvier à mars 2025 ; `docs/capture_purge_conservation.png` |
+| R2 : pas de restauration au-delà de 1 jour | `DATA_RETENTION_TIME_IN_DAYS = 1` posé explicitement sur `RAW.DRIVERS`, `RAW.DRIVER_SHIFTS`, `MARTS.DIM_DRIVER`, `MARTS.MART_DRIVER_MONTHLY` (`snowflake/rh/conservation_rh.sql`). Le défaut du compte valait déjà 1 ; la valeur est maintenant explicite. | `INFORMATION_SCHEMA.TABLES.retention_time` = 1 pour les quatre tables (même capture). Time Travel prouvé avant : juste avant la purge, `RAW.DRIVERS` contenait 400 lignes, dont les 46 chauffeurs purgés, encore lisibles. |
+| R3 : pas de fichier sur le stage | `PURGE = TRUE` dans le `COPY INTO` du chargement (`snowflake/rh/chargement_rh_2_copier.sql`) | `LIST @NYC_TAXI.RAW.RH_STAGE` vide ; 0 fichier dans `DIRECTORY(@RH_STAGE)` (même capture) |
 
-Délai réel entre l'exécution de la purge et la disparition définitive d'une donnée dans Snowflake, en tenant compte de Time Travel et de Fail-safe : ______ jours.
+Délai réel entre l'exécution de la purge et la disparition définitive d'une donnée dans Snowflake, en tenant compte de Time Travel et de Fail-safe : **8 jours** (1 jour de Time Travel, restaurable par vous, puis 7 jours de Fail-safe, que seul Snowflake peut utiliser et que l'on ne peut pas réduire). Pour qu'une donnée supprimée soit irrécupérable plus vite, il faudrait des tables transitoires (sans Fail-safe, d'après la documentation Snowflake, à vérifier avant d'en faire une proposition).
 
 ### Comment on le contrôle
 
 | Question | Réponse | Preuve |
 |---|---|---|
-| Peut-on dire qui a lu ces données la semaine dernière ? | | |
-| Sait-on quand une donnée est fausse ? | | |
-| Que se passe-t-il si le rôle des outils est compromis ? | | |
+| Peut-on dire qui a lu ces données la semaine dernière ? | Oui : `ACCESS_HISTORY` donne les objets lus, `QUERY_HISTORY` le rôle, joints sur l'identifiant de la requête. Le relevé du 4 novembre 2026 nomme 8 lecteurs de `DIM_DRIVER` (dont les tâches, sous l'utilisateur `SYSTEM`) et ne contient pas `GOUVERNANCE`. Limites : retard jusqu'à 3 h, et seules les requêtes réussies y figurent. | `snowflake/gouvernance/06_audit.sql` ; `docs/capture_audit.png` (colonne utilisateur masquée) |
+| Sait-on quand une donnée est fausse ? | Oui, pour huit règles, mesurées chaque jour par `T_QUALITE` sur `RAW` : une ligne par règle et par exécution dans `GOUVERNANCE.QUALITE_RESULTATS` (6 `ALERTE`, 2 `OK` le 4 novembre). Seule `service_rattache` est bloquante (seuil 50, 25 mesurés) : quand elle dépasse son seuil, `T_QUALITE` échoue après avoir enregistré ses résultats et `T_TABLES` ne part pas. Le contrat ne dit pas qui corrige une anomalie, ni sous quel délai. | `snowflake/rh/controles/` (8 règles), `snowflake/rh/taches_rh.sql` ; `docs/capture_taches_et_qualite.png` ; blocage démontré avec un seuil abaissé à 10 : `docs/capture_blocage_tache.png` |
+| Que se passe-t-il si le rôle des outils est compromis ? | C'est la limite principale. `TRANSFORMER` lit toutes les lignes en clair, possède les tables et a reçu `APPLY` sur les trois tags : il pourrait retirer le tag `DONNEE_PERSONNELLE` d'une colonne, et le masque ne s'y appliquerait plus (non testé). Il ne possède pas les politiques, qui appartiennent à `GOUVERNANCE`. Ses lectures restent tracées par l'audit. À réduire par une authentification renforcée sur ce rôle et une revue régulière de `SHOW GRANTS`. | `docs/ACCES.md` partie 1 (« ce que cette carte permet de défaire ») ; `docs/capture_audit.png` |
 
 ### Limites connues
 
-Ce que votre mise en œuvre ne couvre pas : deux ou trois lignes, sans détour.
+- Le rôle des outils voit tout en clair et peut retirer un tag : il est protégé par l'audit et par l'organisation, pas par la technique.
+- `ACCOUNTADMIN` ne lit pas les données, mais peut s'attribuer le rôle `RH_PAIE` ou `TRANSFORMER`. Le garde-fou est organisationnel (revue des droits, audit), pas technique.
+- Le délai réel de suppression est de 8 jours à cause du Fail-safe, que le contrat ne mentionne pas.
+- `end_date` pilote la purge : un chauffeur sans date de fin n'est jamais purgé, et 5 dates de fin sont antérieures à l'embauche (règle `dates_coherentes`) sans que rien ne les corrige.
+- Les dates d'embauche et de fin restent en clair : avec le dépôt, elles réduisent le nombre de candidats. L'audit ne voit que ce qui a réussi, avec un retard.
+- Hors périmètre technique, non traité ici : l'information des chauffeurs, le contrat de sous-traitance avec Snowflake, la désignation du DPO, le transfert vers Londres au-delà de la décision d'adéquation (`docs/VEILLE.md`, section 5).

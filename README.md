@@ -11,17 +11,17 @@ Ce dépôt répond à une seule question : qui peut voir quelle donnée, pendant
 | Veille réglementaire (`docs/VEILLE.md`) | rédigée |
 | Inventaire des données personnelles (`docs/REGISTRE.md`, partie 1) | fait |
 | Chargement du fichier dans `RAW`, rôle `GOUVERNANCE` et tags, catalogue des tables RH | fait (jour 1) |
-| Masquage, accès par dépôt, tests (`docs/ACCES.md`) | à faire |
-| Purge, qualité, tâches planifiées, audit, registre complet | à faire |
+| Masquage, accès par dépôt, cahier de tests (`docs/ACCES.md`) | fait (jour 2) : 25 tests sur 25 verts |
+| Purge, règles de qualité, tâches planifiées, catalogue, audit, registre complet | fait (jour 3) |
 
-Ce fichier est complété au fil du projet. Les sections marquées « à compléter » correspondent aux étapes qui ne sont pas encore faites.
+Ce qui reste de mon côté est une dernière relecture des documents et la démonstration.
 
 ## Contenu du dépôt
 
 - `CONTRAT_GOUVERNANCE.md` : ce que la direction impose (noms des objets, accès, durées de conservation, règles de qualité). Le contrat n'est pas réécrit ici : quand une règle pose problème, c'est signalé plus bas.
 - `GUIDE_BRIEF_GOUVERNANCE.md` : les étapes du brief.
-- `docs/` : la veille, le registre, la carte des accès, les captures.
-- `snowflake/` : le SQL, rejouable. `00_installation.sql` crée la base, les schémas, le warehouse et le rôle des outils. `rh/` contient le chargement et la construction des tables. `gouvernance/` recevra les rôles, les tags et les politiques.
+- `docs/` : la veille (`VEILLE.md`), le registre (`REGISTRE.md`), la carte des droits et le cahier de tests (`ACCES.md`), les captures (aucune valeur de personne).
+- `snowflake/` : le SQL, rejouable. `00_installation.sql` crée la base, les schémas, le warehouse et le rôle des outils. `rh/` contient le chargement, la construction des tables, le catalogue, la purge, la conservation, les règles de qualité et les tâches. `gouvernance/` contient le rôle `GOUVERNANCE`, les tags, les rôles métier, les politiques de masquage et d'accès par dépôt, l'audit, et `tests/` : un script de test par rôle.
 - `exemples/` : exemples fournis avec le kit, lus et adaptés, pas copiés.
 - `COURS_GOUVERNANCE_SNOWFLAKE.md` et `PLAN_BRIEF_3_JOURS.md` : mes notes de cours et mon plan de travail.
 
@@ -61,7 +61,27 @@ Les questions que la veille ne peut pas trancher seule (durées new-yorkaises, r
 
 ### Ce qui est protégé et comment
 
-À compléter. Seront décrits ici, colonne par colonne : ce qui est masqué, ce qui est supprimé, et pourquoi.
+Six mécanismes, chacun écrit dans un fichier SQL rejouable :
+
+- **Les rôles** (`snowflake/gouvernance/01_gouvernance.sql`, `02_roles_metier.sql`) : chaque règle est portée par un rôle, jamais par un utilisateur. `GOUVERNANCE` écrit les règles et ne lit aucune donnée ; `TRANSFORMER` charge et transforme ; quatre rôles métier ne lisent que `MARTS`. `ACCOUNTADMIN` ne lit pas les données du personnel.
+- **Les tags** (`rh/catalogue/`) : `DONNEE_PERSONNELLE` sur chaque colonne qui décrit une personne (y compris `driver_name`, colonne calculée), `SENSIBILITE` et `DUREE_CONSERVATION` sur chaque table. Les descriptions de colonnes et de tables sont dans les mêmes fichiers, et la vue `GOUVERNANCE.V_CATALOGUE` les présente, une ligne par colonne.
+- **Le masquage** (`03_masquage.sql`) : deux politiques, une pour le texte, une pour les dates, attachées au tag `DONNEE_PERSONNELLE`. Toute colonne taguée, aujourd'hui ou demain, est protégée.
+- **Le filtre par dépôt** (`04_acces_depot.sql`) : une politique d'accès par ligne qui lit la table `GOUVERNANCE.ACCES_DEPOT`. Ajouter un dépôt à un rôle est un `INSERT`, sans toucher à la politique.
+- **La conservation** (`rh/purge_rh.sql`, `rh/conservation_rh.sql`) : purge à 5 ans après la fin du contrat, rétention de 1 jour, aucun fichier sur le stage.
+- **Le contrôle** (`rh/controles/`, `rh/taches_rh.sql`, `gouvernance/06_audit.sql`) : huit règles de qualité mesurées chaque jour, et une requête qui dit quels rôles ont lu `DIM_DRIVER`.
+
+Ce que chaque rôle voit de `DIM_DRIVER` et de `MART_DRIVER_MONTHLY` :
+
+| Rôle | Lignes visibles | Nom, prénom, `driver_name` | Téléphone | E-mail | Date de naissance | Licence TLC | `driver_id` |
+|---|---|---|---|---|---|---|---|
+| `RH_PAIE` | tous les dépôts | clair | clair | clair | complète | claire | clair |
+| `RESP_DEPOT_QUEENS` | Queens | clair | clair | `*****` | `NULL` | `*****` | clair |
+| `RESP_DEPOT_BRONX` | Bronx | clair | clair | `*****` | `NULL` | `*****` | clair |
+| `ANALYSTE` | tous les dépôts | `*****` | `*****` | `*****` | 1er janvier de l'année | `*****` | clair |
+| `TRANSFORMER` | toutes | clair | clair | clair | complète | claire | clair |
+| `GOUVERNANCE`, `ACCOUNTADMIN`, `SYSADMIN` | aucune (`GOUVERNANCE` : accès refusé ; les deux autres : 0 ligne) | | | | | | |
+
+Les valeurs de ce tableau sont celles du cahier de tests (`docs/ACCES.md`, partie 2), relevées avec chaque rôle. La carte des droits (qui possède quoi, qui peut faire quoi, avec quel droit) est dans la partie 1 du même fichier.
 
 ### Choix techniques
 
@@ -84,12 +104,88 @@ Supprimer une colonne la retire pour **tous** les rôles, y compris ceux qui en 
 
 Aucune colonne n'est supprimée. Deux pistes restent ouvertes : retirer `tlc_license_number` si la paie n'en a pas besoin, et retirer `driver_name` de `MART_DRIVER_MONTHLY` pour ne plus recopier un nom dans une table d'activité (la jointure avec `DIM_DRIVER` suffirait). J'ai gardé `driver_name` parce que le contrat et le cahier de tests l'attendent.
 
-À compléter : purge des services d'un chauffeur parti, durée de conservation par table.
+#### Le masquage et le filtre
+
+- **Par tag, pas colonne par colonne** : le catalogue pilote la sécurité. Une politique de masquage par type de colonne (texte, date), attachée au tag : `MASK_TEXTE` et `MASK_DATE`. Une politique renvoie le type qu'elle reçoit, donc une date masquée reste une date.
+- **`CURRENT_ROLE()`, pas `IS_ROLE_IN_SESSION`** : la politique regarde le rôle actif. Avec `IS_ROLE_IN_SESSION`, un administrateur qui hérite d'un rôle serait traité comme ce rôle. Ici, `ACCOUNTADMIN` n'a rien dans `ACCES_DEPOT` : il lit les tables par héritage, mais voit 0 ligne (tests 7, 9 bis, 15, 16).
+- **Refus par défaut** : le dernier cas du masque est `*****` (ou `NULL`). Un rôle qui n'est pas cité ne voit jamais une valeur par oubli.
+- **L'exception `driver_id`** : la colonne porte le tag comme les autres, mais le contrat veut qu'elle reste visible. La politique la repère par la valeur du tag (`identifiant_interne`).
+- **`TRANSFORMER` voit en clair et figure dans `ACCES_DEPOT`** : sinon le pipeline recopierait des masques dans `DIM_DRIVER`, ou reconstruirait le mart sans aucune ligne ni nom, sans erreur. Le test 10 le vérifie après chaque relance.
+- **`'*'` pour « tous les dépôts »** dans `ACCES_DEPOT`.
+- **La politique par ligne est aussi attachée à `RAW`** : le contrat range `RAW.DRIVERS` et `RAW.DRIVER_SHIFTS` parmi les tables du domaine RH, et donne « aucune ligne » à `ACCOUNTADMIN`.
+- **`INSERT OVERWRITE`, jamais `CREATE OR REPLACE TABLE`** sur les tables RH : une table recréée perd ses tags, ses descriptions et ses politiques. Les politiques se retrouvent identiques après chaque exécution des tâches (`rh/` et test 12 du cahier).
+- **Des scripts rejouables** : `IF NOT EXISTS` pour les objets, `ALTER … SET BODY` pour changer une politique attachée, un bloc qui tolère « déjà attaché », `DROP ALL ROW ACCESS POLICIES` puis `ADD`.
+
+#### La conservation
+
+- **Critère de purge** : `end_date` antérieure à aujourd'hui moins 5 ans. Un chauffeur en poste (`end_date` vide) n'est jamais purgé. Le résultat dépend de la date d'exécution : le 4 novembre 2026, la limite est le 4 novembre 2021 et 46 chauffeurs sont concernés (aucune date de fin du fichier n'est proche de la limite, ce nombre est stable de fin septembre à mi-décembre).
+- **Les services d'un chauffeur parti** : le contrat dit que R1 s'applique partout où la donnée a été copiée. La purge supprime donc ses services dans `RAW.DRIVER_SHIFTS`, avant le chauffeur (la liste des chauffeurs à purger se lit dans `RAW.DRIVERS`). Dans ce fichier, les 46 chauffeurs n'ont aucun service (il couvre janvier à mars 2025) : 0 ligne supprimée, la règle reste écrite pour les prochains chargements.
+- **`DIM_DRIVER` et le mart ne se purgent pas à la main** : ils sont reconstruits depuis `RAW` par `T_TABLES`. Après la purge : `DIM_DRIVER` 354, `MART_DRIVER_MONTHLY` 914.
+- **Les services orphelins** (25, des chauffeurs inconnus) ne sont pas purgés : R1 ne les concerne pas. La règle de qualité `service_rattache` les mesure.
+- **Un fichier complet rechargé** (par exemple depuis 2005) ramènerait les anciens chauffeurs dans `RAW` : la purge doit donc tourner après chaque chargement, d'où une tâche quotidienne.
+- **Durée de conservation par table** (tag `DUREE_CONSERVATION`) : `RAW.DRIVERS` et `DIM_DRIVER` « 5 ans après la fin du contrat » ; `RAW.DRIVER_SHIFTS` et `MART_DRIVER_MONTHLY` « 5 ans après la fin du contrat du chauffeur » ; `DIM_DEPOT` sans limite (référentiel de l'entreprise).
+- **Time Travel d'abord, rétention ensuite** : juste après la purge, `RAW.DRIVERS` pouvait encore être lue avec ses 400 lignes, dont les 46 chauffeurs supprimés. J'ai fixé ensuite `DATA_RETENTION_TIME_IN_DAYS = 1` sur les quatre tables. Le défaut du compte valait déjà 1 : la valeur est maintenant explicite. Le délai réel de disparition est de 8 jours, à cause des 7 jours de Fail-safe, qu'on ne peut pas réduire.
+
+#### La qualité des données
+
+Les huit règles du contrat sont mesurées sur `RAW`, chacune par une requête qui renvoie un seul nombre (`rh/controles/`). `T_QUALITE` les enregistre chaque jour dans `GOUVERNANCE.QUALITE_RESULTATS` : une ligne par règle et par exécution, `OK` si le nombre est sous le seuil, `ALERTE` sinon.
+
+| Règle | Énoncé | Seuil | Gravité | Mesure du 4 novembre 2026 |
+|---|---|---|---|---|
+| `licence_unique` | un numéro de licence n'appartient qu'à un chauffeur | 0 | avertissement | 4, `ALERTE` |
+| `telephone_renseigne` | chaque chauffeur en poste a un téléphone | 5 % des chauffeurs en poste (15) | avertissement | 12, `OK` |
+| `email_valide` | l'e-mail contient un `@` | 0 | avertissement | 7, `ALERTE` |
+| `dates_coherentes` | pas d'embauche future, pas de fin avant l'embauche | 0 | avertissement | 8, `ALERTE` |
+| `depot_connu` | dépôt écrit exactement `Bronx`, `Brooklyn` ou `Queens` | 0 | avertissement | 9, `ALERTE` |
+| `service_rattache` | chaque service appartient à un chauffeur connu | 50 services | **bloquant** | 25, `OK` |
+| `service_unique` | un identifiant de service n'apparaît qu'une fois | 0 | avertissement | 18, `ALERTE` |
+| `duree_plausible` | un service ne dure pas plus de 16 heures | 0 | avertissement | 14, `ALERTE` |
+
+Une règle d'avertissement enregistre une ligne `ALERTE` et les tâches continuent. La règle bloquante enregistre son résultat, **puis** lève une erreur : `T_QUALITE` échoue et `T_TABLES` ne part pas. J'ai prouvé ce blocage en abaissant le seuil de `service_rattache` à 10, puis en le remettant à 50 (`docs/capture_blocage_tache.png`).
+
+#### Les tâches
+
+`MARTS.T_PURGE` (racine, chaque jour à 6 h, heure de Paris) → `MARTS.T_QUALITE` → `MARTS.T_TABLES`. On purge, on contrôle, et on ne reconstruit les tables que si le contrôle est passé. Les tâches tournent avec le rôle `TRANSFORMER`, qui lit en clair et figure dans `ACCES_DEPOT`. Le graphe est dans `docs/capture_graphe_taches.png`. La racine est suspendue à la fin du projet (`ALTER TASK NYC_TAXI.MARTS.T_PURGE SUSPEND;`), parce qu'une tâche activée consomme des crédits chaque jour.
 
 ### Ordre d'exécution
 
-À compléter une fois les scripts écrits et rejoués de bout en bout.
+Chaque fichier se colle dans une feuille Snowsight et se lance en entier. Chacun commence par `USE SECONDARY ROLES NONE;` et prend lui-même son rôle ; le rôle indiqué est celui qui l'exécute. Prérequis : un compte Snowflake **Enterprise** (masquage, accès par ligne, `ACCESS_HISTORY`) et les deux CSV du kit dans `data/`.
+
+| # | Fichier | Rôle | Ce que ça fait |
+|---|---|---|---|
+| 1 | `snowflake/00_installation.sql` | `ACCOUNTADMIN` | warehouse, base, schémas `RAW`, `STAGING`, `MARTS`, rôle `TRANSFORMER` |
+| 2 | `snowflake/rh/chargement_rh_1_preparer.sql` | `TRANSFORMER` | format de fichier, stage `RH_STAGE`, tables `RAW` |
+| 3 | dépôt des deux CSV sur `@NYC_TAXI.RAW.RH_STAGE` depuis Snowsight (`LIST` : 2 fichiers) | `TRANSFORMER` | |
+| 4 | `snowflake/rh/chargement_rh_2_copier.sql` | `TRANSFORMER` | `COPY INTO` avec `PURGE = TRUE` : 400 chauffeurs, 25 951 services, stage vide |
+| 5 | `snowflake/rh/00_tables_rh.sql` | `TRANSFORMER` | tables de `MARTS`, vides |
+| 6 | `snowflake/rh/staging/stg_rh__drivers.sql`, puis `stg_rh__driver_shifts.sql` | `TRANSFORMER` | vues de nettoyage (`STG_RH__DRIVER_SHIFTS` : 25 933 lignes) |
+| 7 | `snowflake/rh/marts/dim_depot.sql`, `dim_driver.sql`, `mart_driver_monthly.sql` | `TRANSFORMER` | `DIM_DEPOT` 3, `DIM_DRIVER` 400, `MART_DRIVER_MONTHLY` 914 |
+| 8 | `snowflake/gouvernance/01_gouvernance.sql` | `ACCOUNTADMIN`, puis `GOUVERNANCE` | rôle `GOUVERNANCE`, schéma, 3 tags, `QUALITE_RESULTATS`, droits |
+| 9 | `snowflake/gouvernance/modele_catalogue_dim_depot.sql`, puis `snowflake/rh/catalogue/catalogue_*.sql` (4 fichiers) | `TRANSFORMER` | descriptions et tags des tables |
+| 10 | `snowflake/gouvernance/02_roles_metier.sql` | `ACCOUNTADMIN` | `RH_PAIE`, `RESP_DEPOT_QUEENS`, `RESP_DEPOT_BRONX`, `ANALYSTE` et leurs droits de lecture |
+| 11 | `snowflake/gouvernance/03_masquage.sql`, puis `04_acces_depot.sql` | `GOUVERNANCE` | politiques de masquage, table `ACCES_DEPOT`, politique par ligne |
+| 12 | `snowflake/rh/purge_rh.sql`, puis `marts/dim_driver.sql` et `marts/mart_driver_monthly.sql`, `preuves_purge.sql`, `conservation_rh.sql` | `TRANSFORMER` | purge R1 (même session pour les quatre derniers), reconstruction, preuve du Time Travel, rétention R2, stage R3 : `DIM_DRIVER` 354 |
+| 13 | `snowflake/rh/catalogue/v_catalogue.sql` | `TRANSFORMER` | vue `GOUVERNANCE.V_CATALOGUE` (24 colonnes) |
+| 14 | `snowflake/rh/taches_rh.sql` | `TRANSFORMER` | les trois tâches, activées et lancées une fois |
+| 15 | `snowflake/gouvernance/06_audit.sql` | `ACCOUNTADMIN` | qui a lu `DIM_DRIVER` (retard possible jusqu'à 3 h) |
+
+Les tests sont dans `snowflake/gouvernance/tests/` : un script par rôle (`test_acces_<rôle>.sql`), plus `test_apres_relance_pipeline.sql`, `test_12_politiques_attachees.sql`, `test_apres_taches.sql` et `test_v_catalogue.sql`. Chacun renvoie une table, sans afficher de valeur de personne. `snowflake/rh/demo_blocage_tache.sql` rejoue le blocage de la règle bloquante.
+
+Pour recharger un fichier complet : redéposer les CSV (étape 3), relancer l'étape 4, puis exécuter les tâches (`EXECUTE TASK NYC_TAXI.MARTS.T_PURGE;`) ou attendre 6 h.
 
 ### Limites connues
 
-À compléter en fin de projet.
+- **Le rôle des outils voit tout en clair** et possède les tables. Il a reçu `APPLY` sur les trois tags : il pourrait retirer `DONNEE_PERSONNELLE` d'une colonne, et le masque ne s'y appliquerait plus (non testé). Il ne possède pas les politiques. Ses lectures sont tracées par l'audit ; le reste est une question d'authentification et de revue des droits.
+- **`ACCOUNTADMIN` ne lit pas les données, mais peut s'attribuer un autre rôle** (`RH_PAIE`, `TRANSFORMER`) et en voir. Le garde-fou est organisationnel (revue de `SHOW GRANTS`, audit), pas technique.
+- **Fail-safe** : une donnée supprimée n'a réellement disparu qu'au bout de 8 jours (1 + 7). Les tables transitoires sont une piste (pas de Fail-safe, d'après la documentation Snowflake, à vérifier) ; je ne l'ai pas appliquée.
+- **Les dates en clair** (`hire_date`, `end_date`, `is_active`, `tenure_years`) : aucune valeur du tag ne leur correspond (liste fermée par le contrat). Avec le dépôt, elles réduisent le nombre de candidats. Je les laisse parce qu'elles ne sont pas identifiantes seules et que la règle R1 en a besoin.
+- **`tlc_license_number`** : gardé en clair pour la paie parce que le contrat lui donne « tout ». Si elle n'en a pas l'usage, il faudrait le supprimer (minimisation, art. 5 §1 c du RGPD). C'est une proposition, pas une décision.
+- **`driver_name` dans `MART_DRIVER_MONTHLY`** recopie un nom dans une table d'activité. Je le garde (masqué par le tag) parce que le contrat et le cahier de tests l'attendent. On pourrait le retirer et passer par la jointure avec `DIM_DRIVER`.
+- **La purge repose sur `end_date`** : un chauffeur sans date de fin n'est jamais purgé, et 5 dates de fin sont antérieures à l'embauche (règle `dates_coherentes`) sans que rien ne les corrige. Rien ne distingue la base active de l'archivage intermédiaire, que la CNIL recommande.
+- **Qualité** : sept règles sur huit se contentent d'alerter. Le contrat ne dit pas qui corrige une anomalie ni sous quel délai.
+- **Dans `STAGING`**, quand un identifiant de service est en double, la ligne gardée n'est pas déterminée (même heure de chargement). Les volumes sont les mêmes dans les deux cas.
+- **L'audit** ne voit que les requêtes qui ont réussi, avec un retard pouvant atteindre 3 heures.
+- **Relancer le chargement avec un stage vide échoue** (« Remote file … was not found ») : la clause `FILES` désigne un fichier que `PURGE = TRUE` a retiré. Je n'ai pas testé le cas d'un fichier redéposé. Le commentaire du kit (« relancé, ce fichier ne charge rien de plus ») n'est exact que dans ce cas.
+- **Le kit** décrit `GOUVERNANCE` comme voyant les tables sans les lire : dans mes essais, `SHOW TABLES` était vide pour ce rôle avec `USAGE` sur le schéma. Il peut quand même attacher une politique à une table qu'il ne voit pas, grâce aux droits `APPLY` sur le compte.
+- **Une erreur utile** : ma première version de `T_QUALITE` échouait avec « INTO clause is not allowed in this context », parce que j'avais mis une sous-requête dans un `SELECT … INTO` à l'intérieur d'un bloc de script. L'échec est resté dans l'historique des tâches.
+- **Hors périmètre technique**, non traité : l'information des chauffeurs sur le traitement, le contrat de sous-traitance avec Snowflake, la désignation du DPO, et la suite du transfert vers Londres au-delà de la décision d'adéquation (`docs/VEILLE.md`, section 5).
