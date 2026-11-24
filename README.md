@@ -14,7 +14,7 @@ Ce dépôt répond à une seule question : qui peut voir quelle donnée, pendant
 | Masquage, accès par dépôt, cahier de tests (`docs/ACCES.md`) | fait (jour 2) : 25 tests sur 25 verts |
 | Purge, règles de qualité, tâches planifiées, catalogue, audit, registre complet | fait (jour 3) |
 
-Les trois tâches planifiées sont suspendues (voir « Les tâches »). La démonstration est présentée par une autre personne, à partir de ce dépôt ; il me reste une dernière relecture des documents.
+Le projet est terminé : les trois tâches planifiées sont suspendues (voir « Les tâches ») et le rendu est ce dépôt, avec ses captures et ses scripts de test.
 
 ## Contenu du dépôt
 
